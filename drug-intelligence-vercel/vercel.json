@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/.netlify/functions/search",
+      "destination": "/api/search"
+    }
+  ]
+}
