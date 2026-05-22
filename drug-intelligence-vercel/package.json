@@ -1,8 +1,0 @@
-{
-  "name": "drug-intelligence-dashboard",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "duck-duck-scrape": "^2.2.7"
-  }
-}
