@@ -1,51 +1,81 @@
-const DDG = require('duck-duck-scrape');
-
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
+  // Only allow incoming POST requests from your frontend dashboard
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  const { TAVILY_API_KEY } = process.env;
+  if (!TAVILY_API_KEY) {
+    return res.status(500).json({ error: 'TAVILY_API_KEY environment variable is not set.' });
+  }
+
   const { query, category, region, state } = req.body || {};
 
-  const geoContext = state ? state : region ? `${region} US` : 'United States';
+  // 1. Synthesize user filters into a targeted search phrase
+  const geoContext = state 
+    ? state 
+    : region 
+    ? `${region} US` 
+    : 'United States';
+
   const topicContext = query || 'illicit drug use drug testing toxicology overdose';
   const categoryContext = category ? category : '';
   const fullSearchQuery = `${topicContext} ${categoryContext} toxicology ${geoContext}`.trim();
 
   try {
-    const userAgents = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15'
-    ];
-    const randomUserAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-
-    const searchResults = await DDG.search(fullSearchQuery, {
-      safeSearch: DDG.SafeSearchType.STRICT,
-      headers: {
-        'User-Agent': randomUserAgent,
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-      }
+    // 2. Query Tavily's specialized research index securely
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: TAVILY_API_KEY,
+        query: fullSearchQuery,
+        search_depth: 'basic',
+        include_answer: false,
+        max_results: 6
+      })
     });
 
-    const articles = (searchResults.results || []).slice(0, 8).map((item) => {
-      let cleanSource = 'Unknown Source';
-      try { if (item.url) cleanSource = new URL(item.url).hostname.replace('www.', ''); } catch (e) {}
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(200).json({ articles: [], message: `Upstream search error. Please check configurations.` });
+    }
+
+    const data = await response.json();
+    const results = data.results || [];
+
+    // 3. Map Tavily's stable return payload directly to your dashboard schema
+    const articles = results.map((item) => {
+      let cleanSource = 'Intelligence Source';
+      try {
+        if (item.url) {
+          cleanSource = new URL(item.url).hostname.replace('www.', '');
+        }
+      } catch (e) {}
+
+      // Clean up snippets that might contain raw markdown characters
+      const cleanSummary = (item.content || 'No summary overview provided.')
+        .replace(/`{1,3}/g, '')
+        .trim();
 
       return {
         title: item.title || 'Untitled Article',
         source: cleanSource,
         date: 'Recent', 
         url: item.url || '',
-        summary: item.description || 'No summary overview provided.',
-        category: category || 'News',
+        summary: cleanSummary,
+        category: category || 'Public Health',
         geography: state || region || 'National',
         relevance_tags: (query || 'toxicology').toLowerCase().split(' ').slice(0, 3)
       };
     });
 
     return res.status(200).json({ articles });
+
   } catch (err) {
-    return res.status(200).json({ articles: [], message: "Search engine busy. Please try again shortly." });
+    return res.status(200).json({ 
+      articles: [], 
+      message: "The intelligence matrix is temporarily unavailable. Please try again shortly." 
+    });
   }
-};
+}
